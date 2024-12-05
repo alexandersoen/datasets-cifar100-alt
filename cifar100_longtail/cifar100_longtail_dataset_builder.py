@@ -1,9 +1,7 @@
-"""cifar100_noisy dataset.
-
-TODO: Coarse labels are not noise.
-"""
+"""cifar100_longtail dataset."""
 
 import random
+from collections import Counter
 from typing import cast
 
 import tensorflow_datasets as tfds
@@ -18,13 +16,15 @@ _RELEASE_NOTES = {
 }
 
 N_CLASSES = 100
-N_NOISY_CLASSES_LIST = [0, 10, 25]
+N_HEAD_CLASSES_LIST = [100, 50, 25]
 
 
-class Cifar100NoisyConfig(tfds.core.BuilderConfig):
-    """BuilderConfig for Cifar100Noisy."""
+class Cifar100LongtailConfig(tfds.core.BuilderConfig):
+    """BuilderConfig for Cifar100Longtail."""
 
-    def __init__(self, *, n_noisy_classes=0, **kwargs):
+    def __init__(
+        self, *, n_head_classes=N_CLASSES, n_instances_per_tail=50, **kwargs
+    ):
         """BuilderConfig for Imagenet2012Corrupted.
 
         Args:
@@ -32,7 +32,8 @@ class Cifar100NoisyConfig(tfds.core.BuilderConfig):
           **kwargs: keyword arguments forwarded to super.
         """
         super().__init__(**kwargs)
-        self.n_noisy_classes = n_noisy_classes
+        self.n_head_classes = n_head_classes
+        self.n_instances_per_tail = n_instances_per_tail
 
 
 def _make_builder_configs():
@@ -45,28 +46,41 @@ def _make_builder_configs():
       A list of 95 Imagenet2012CorruptedConfig objects.
     """
     config_list = []
-    for n_noisy_classes in N_NOISY_CLASSES_LIST:
-        name_str = f"label_noise_{n_noisy_classes}"
-        description_str = (
-            f"num classes with uniform label noise = {n_noisy_classes}"
-        )
+    for n_head_classes in N_HEAD_CLASSES_LIST:
+        name_str = f"head_{n_head_classes}"
+        description_str = f"num head classes = {n_head_classes} / {N_CLASSES}"
         config_list.append(
-            Cifar100NoisyConfig(
+            Cifar100LongtailConfig(
                 name=name_str,
                 version=_VERSION,
                 release_notes=_RELEASE_NOTES,
                 description=description_str,
-                n_noisy_classes=n_noisy_classes,
+                n_head_classes=n_head_classes,
             )
         )
     return config_list
 
 
-def add_label_noise(record, n_noisy_classes, n_classes):
-    if record["label"] < n_noisy_classes:
-        record["label"] = random.randrange(n_classes)
+class LongtailFilter:
+    def __init__(
+        self, n_head_classes: int, n_classes: int, n_tail_instances: int
+    ) -> None:
+        self.n_tail_classes = n_classes - n_head_classes
 
-    return record
+        self.n_tail_instances = n_tail_instances
+        self.accepted_counter: Counter[int] = Counter()
+
+    def filter(self, record) -> bool:
+        label = record["label"]
+
+        # Filter if in tail class + already accepted enough
+        if label < self.n_tail_classes:
+            if self.accepted_counter[label] >= self.n_tail_instances:
+                return True
+            else:
+                self.accepted_counter[label] += 1
+
+        return False
 
 
 class Builder(Cifar100):
@@ -101,10 +115,15 @@ class Builder(Cifar100):
         gen_fn = super()._generate_examples(split_prefix, filepaths)
         random.seed(self.SEED)
 
-        build_config = cast(Cifar100NoisyConfig, self.builder_config)
+        build_config = cast(Cifar100LongtailConfig, self.builder_config)
+        longtail_filter = LongtailFilter(
+            build_config.n_head_classes,
+            N_CLASSES,
+            build_config.n_instances_per_tail,
+        )
 
         for key, example in gen_fn:
-            example = add_label_noise(
-                example, build_config.n_noisy_classes, N_CLASSES
-            )
+            if longtail_filter.filter(example):
+                continue
+
             yield key, example
