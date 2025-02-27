@@ -22,7 +22,7 @@ if __name__ == "__main__":
     print(generate_hist("cifar100_noisy/label_noise_10"))
     print(generate_hist("cifar100_noisy/label_noise_25"))
     print()
-    print("Label Noise")
+    print("Longtail")
     print(generate_hist("cifar100_longtail/head_100"))
     print(generate_hist("cifar100_longtail/head_50"))
     print(generate_hist("cifar100_longtail/head_25"))
