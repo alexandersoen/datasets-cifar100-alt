@@ -62,11 +62,30 @@ def _make_builder_configs():
     return config_list
 
 
-def add_label_noise(record, n_noisy_classes, n_classes):
-    if record["label"] < n_noisy_classes:
-        record["label"] = random.randrange(n_classes)
+class NoiseGenerator:
+    def __init__(
+        self,
+        n_noisy_classes: int,
+        n_classes: int,
+        seed: int,
+    ) -> None:
+        self.n_noisy_classes = n_noisy_classes
+        self.n_classes = n_classes
 
-    return record
+        self.seed = seed
+        self.class_ordering = list(range(n_classes))
+
+        random.seed(seed)
+        random.shuffle(self.class_ordering)
+
+    def add_noise(self, record):
+        label = record["label"]
+        label_idx = self.class_ordering[label]
+
+        if label_idx < self.n_noisy_classes:
+            record["label"] = random.randrange(self.n_classes)
+
+        return record
 
 
 class Builder(Cifar100):
@@ -102,9 +121,13 @@ class Builder(Cifar100):
         random.seed(self.SEED)
 
         build_config = cast(Cifar100NoisyConfig, self.builder_config)
+        noisy_generator = NoiseGenerator(
+            build_config.n_noisy_classes,
+            N_CLASSES,
+            seed=self.SEED,
+        )
 
         for key, example in gen_fn:
-            example = add_label_noise(
-                example, build_config.n_noisy_classes, N_CLASSES
-            )
+            example = noisy_generator.add_noise(example)
+
             yield key, example

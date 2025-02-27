@@ -25,26 +25,12 @@ class Cifar100LongtailConfig(tfds.core.BuilderConfig):
     def __init__(
         self, *, n_head_classes=N_CLASSES, n_instances_per_tail=50, **kwargs
     ):
-        """BuilderConfig for Imagenet2012Corrupted.
-
-        Args:
-          num_class_noisy: integer, number of classes with label noise
-          **kwargs: keyword arguments forwarded to super.
-        """
         super().__init__(**kwargs)
         self.n_head_classes = n_head_classes
         self.n_instances_per_tail = n_instances_per_tail
 
 
 def _make_builder_configs():
-    """Construct a list of BuilderConfigs.
-
-    Construct a list of 95 Imagenet2012CorruptedConfig objects, corresponding to
-    the 15 + 4 corruption types, with each type having 5 severities.
-
-    Returns:
-      A list of 95 Imagenet2012CorruptedConfig objects.
-    """
     config_list = []
     for n_head_classes in N_HEAD_CLASSES_LIST:
         name_str = f"head_{n_head_classes}"
@@ -63,22 +49,33 @@ def _make_builder_configs():
 
 class LongtailFilter:
     def __init__(
-        self, n_head_classes: int, n_classes: int, n_tail_instances: int
+        self,
+        n_head_classes: int,
+        n_classes: int,
+        n_tail_instances: int,
+        seed: int,
     ) -> None:
         self.n_tail_classes = n_classes - n_head_classes
 
         self.n_tail_instances = n_tail_instances
         self.accepted_counter: Counter[int] = Counter()
 
+        self.seed = seed
+        self.class_ordering = list(range(n_classes))
+
+        random.seed(seed)
+        random.shuffle(self.class_ordering)
+
     def filter(self, record) -> bool:
         label = record["label"]
+        label_idx = self.class_ordering[label]
 
         # Filter if in tail class + already accepted enough
-        if label < self.n_tail_classes:
-            if self.accepted_counter[label] >= self.n_tail_instances:
+        if label_idx < self.n_tail_classes:
+            if self.accepted_counter[label_idx] >= self.n_tail_instances:
                 return True
             else:
-                self.accepted_counter[label] += 1
+                self.accepted_counter[label_idx] += 1
 
         return False
 
@@ -113,13 +110,13 @@ class Builder(Cifar100):
 
     def _generate_examples(self, split_prefix, filepaths):
         gen_fn = super()._generate_examples(split_prefix, filepaths)
-        random.seed(self.SEED)
 
         build_config = cast(Cifar100LongtailConfig, self.builder_config)
         longtail_filter = LongtailFilter(
             build_config.n_head_classes,
             N_CLASSES,
             build_config.n_instances_per_tail,
+            seed=self.SEED,
         )
 
         for key, example in gen_fn:
