@@ -55,7 +55,8 @@ class NonDogDownSampler:
         random.seed(seed)
 
     def is_dog(self, record) -> bool:
-        file_name = record["file_name"]
+        file_name = record["file_name"].encode("utf-8")
+        print(file_name)
         synset_id_str, *_ = file_name.split("_")
         synset_id = int(synset_id_str[1:])
 
@@ -69,9 +70,7 @@ class NonDogDownSampler:
 
     def filter(self, record) -> bool:
         is_dog = record["is_dog"]
-        if self.nondog_perc < 1.0 or (
-            not is_dog and random.uniform(0, 1) < self.nondog_perc
-        ):
+        if not is_dog and random.uniform(0, 1) < self.nondog_perc:
             return False
 
         return True
@@ -119,7 +118,9 @@ class Builder(Imagenet2012Builder):
         for key, example in gen_fn:
             example = nondog_downsampler.label_is_dog(example)
 
-            if nondog_downsampler.filter(example):
+            if build_config.nondog_perc != 100 and nondog_downsampler.filter(
+                example
+            ):
                 continue
 
             yield key, example
